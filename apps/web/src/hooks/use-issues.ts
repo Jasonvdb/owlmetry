@@ -9,12 +9,32 @@ import useSWR from "swr";
 import { api } from "@/lib/api";
 import { buildQueryString } from "@/lib/query";
 import type {
+  IssueCountsResponse,
   IssueDetailResponse,
   IssueResponse,
   IssueStatus,
   IssuesQueryParams,
   IssuesResponse,
 } from "@owlmetry/shared";
+
+/**
+ * Authoritative per-status issue counts from `/v1/issues/count`. Use this for
+ * tiles and column-header badges instead of `issues.length` — the list endpoint
+ * only ever returns the loaded page(s), so counting its length undercounts once
+ * a scope has more issues than a single page.
+ */
+export function useIssueCounts(
+  filters: { team_id?: string; project_id?: string; app_id?: string; data_mode?: string } = {},
+) {
+  const qs = buildQueryString(filters);
+  const key = filters.team_id || filters.project_id ? `/v1/issues/count?${qs}` : null;
+
+  const { data, isLoading, mutate } = useSWR<IssueCountsResponse>(key, {
+    refreshInterval: 30_000,
+  });
+
+  return { counts: data ?? null, isLoading, mutate };
+}
 
 export function useIssues(filters: Partial<IssuesQueryParams> = {}) {
   const qs = buildQueryString(filters);

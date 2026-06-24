@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { eq, and, inArray, isNull, sql, desc } from "drizzle-orm";
 import { issues, issueFingerprints, issueOccurrences, issueComments, apps, projects, eventAttachments, appUsers } from "@owlmetry/db";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, ISSUE_STATUSES, ATTACHMENT_ISSUE_DETAIL_PAGE_SIZE } from "@owlmetry/shared";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, ISSUE_STATUSES, OPEN_ISSUE_STATUSES, ATTACHMENT_ISSUE_DETAIL_PAGE_SIZE } from "@owlmetry/shared";
+import type { IssueCountsResponse } from "@owlmetry/shared";
 import type { DataMode, IssueStatus, IssuesQueryParams, UpdateIssueRequest, MergeIssuesRequest, CreateIssueCommentRequest, UpdateIssueCommentRequest } from "@owlmetry/shared";
 import type { IssueAlertFrequency } from "@owlmetry/shared";
 import { requirePermission, getAuthTeamIds } from "../middleware/auth.js";
@@ -720,6 +721,57 @@ export async function teamIssuesRoutes(app: FastifyInstance) {
         cursor: hasMore && lastItem ? encodeKeysetCursor(lastItem.updated_at, lastItem.id) : null,
         has_more: hasMore,
       };
+    }
+  );
+
+  // Per-status issue counts. Authoritative COUNT(*) GROUP BY status — the home
+  // "Open Issues" tile + iOS tile read `open` from here instead of paging the
+  // list endpoint and filtering client-side (which silently undercounts once a
+  // team crosses one page of total issues).
+  app.get<{ Querystring: { team_id?: string; project_id?: string; app_id?: string; data_mode?: string } }>(
+    "/issues/count",
+    { preHandler: requirePermission("issues:read") },
+    async (request): Promise<IssueCountsResponse> => {
+      const zero: IssueCountsResponse = {
+        new: 0, in_progress: 0, regressed: 0, resolved: 0, silenced: 0, snoozed: 0, open: 0,
+      };
+
+      const auth = request.auth;
+      const allTeamIds = getAuthTeamIds(auth);
+      const { team_id, project_id, app_id, data_mode } = request.query;
+
+      const teamIds = team_id
+        ? (allTeamIds.includes(team_id) ? [team_id] : [])
+        : allTeamIds;
+      if (teamIds.length === 0) return zero;
+
+      const projectConditions = [inArray(projects.team_id, teamIds), isNull(projects.deleted_at)];
+      if (project_id) projectConditions.push(eq(projects.id, project_id));
+      const accessibleProjects = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(...projectConditions));
+      if (accessibleProjects.length === 0) return zero;
+
+      const conditions = [inArray(issues.project_id, accessibleProjects.map((p) => p.id))];
+      if (app_id) conditions.push(eq(issues.app_id, app_id));
+      const devCondition = dataModeToDrizzle(issues.is_dev, data_mode as DataMode);
+      if (devCondition) conditions.push(devCondition);
+
+      const rows = await app.db
+        .select({ status: issues.status, count: sql<number>`COUNT(*)::int` })
+        .from(issues)
+        .where(and(...conditions))
+        .groupBy(issues.status);
+
+      const result: IssueCountsResponse = { ...zero };
+      for (const row of rows) {
+        if ((ISSUE_STATUSES as readonly string[]).includes(row.status)) {
+          result[row.status as keyof IssueCountsResponse] = Number(row.count);
+        }
+      }
+      result.open = OPEN_ISSUE_STATUSES.reduce((sum, s) => sum + result[s], 0);
+      return result;
     }
   );
 }

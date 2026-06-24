@@ -226,3 +226,34 @@ Team-level cross-project issue listing. Returns issues across all accessible tea
 ### Response
 
 Same shape as `GET /v1/projects/:projectId/issues`, but each issue also includes a `project_name` field.
+
+## GET /v1/issues/count
+
+Authoritative per-status issue counts across the accessible scope, computed with a single `COUNT(*) GROUP BY status` (never paginated). Use this for tiles and badges instead of counting a paged list response.
+
+**Auth required:** Yes (`issues:read` permission or JWT)
+
+### Query parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `team_id` | string | Filter to a specific team. |
+| `project_id` | string | Filter to a specific project. |
+| `app_id` | string | Filter to a specific app. |
+| `data_mode` | string | `production` (default), `development`, or `all`. |
+
+### Response
+
+```json
+{
+  "new": 15,
+  "in_progress": 2,
+  "regressed": 0,
+  "resolved": 124,
+  "silenced": 5,
+  "snoozed": 3,
+  "open": 17
+}
+```
+
+`open` is the sum of the open statuses (`new` + `in_progress` + `regressed`).

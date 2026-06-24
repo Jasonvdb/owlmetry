@@ -6,7 +6,7 @@ import useSWR from "swr";
 import type { ProjectResponse, IssueResponse, IssueStatus, AppResponse } from "@owlmetry/shared";
 import { useTeam } from "@/contexts/team-context";
 import { useDataMode } from "@/contexts/data-mode-context";
-import { useIssuesByStatus, useIssue, issueActions } from "@/hooks/use-issues";
+import { useIssuesByStatus, useIssueCounts, useIssue, issueActions } from "@/hooks/use-issues";
 import { useProjectColorMap } from "@/hooks/use-project-colors";
 import { formatDateTime } from "@/lib/format-date";
 import { CountryEmoji } from "@/components/country-flag";
@@ -490,6 +490,10 @@ export default function IssuesPage() {
   const snoozedCol = useIssuesByStatus({ ...baseArgs, status: "snoozed", autoLoadAll: false });
   const silencedCol = useIssuesByStatus({ ...baseArgs, status: "silenced", autoLoadAll: false });
 
+  // Authoritative per-status counts for the column-header badges. Off-ramp columns
+  // only load their first page, so `issues.length` would under-report them.
+  const { counts: issueCounts } = useIssueCounts(baseArgs);
+
   // "New" is sorted by severity (unique users affected) so the most impactful issues surface first.
   const newIssuesSorted = useMemo(() => {
     return [...newCol.issues].sort((a, b) => {
@@ -589,7 +593,7 @@ export default function IssuesPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <span>{config.emoji}</span>
                   <span className="text-sm font-semibold">{config.label}</span>
-                  <CountBadge className="ml-auto">{col.issues.length}</CountBadge>
+                  <CountBadge className="ml-auto">{issueCounts?.[status] ?? col.issues.length}</CountBadge>
                 </div>
                 <div className="space-y-2">
                   {col.issues.map((issue) => (

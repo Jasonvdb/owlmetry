@@ -8,10 +8,10 @@ import type {
   AppResponse,
   CompletionsCountResponse,
   EventsCountResponse,
-  IssuesResponse,
   ProjectResponse,
 } from "@owlmetry/shared";
 import { useUser } from "@/hooks/use-user";
+import { useIssueCounts } from "@/hooks/use-issues";
 import { useUserPreferences, useUpdateUserPreferences } from "@/hooks/use-user-preferences";
 import { useDailyStats } from "@/hooks/use-daily-stats";
 import { useTeam } from "@/contexts/team-context";
@@ -42,7 +42,6 @@ import { RecentAuditPanel } from "./_components/recent-audit-panel";
 import { RecentUsersPanel } from "./_components/recent-users-panel";
 import { QuickLinks } from "./_components/quick-links";
 
-const UNRESOLVED_STATUSES = new Set(["new", "in_progress", "regressed"]);
 const ALL_PROJECTS = "__all__";
 
 export default function DashboardPage() {
@@ -82,9 +81,11 @@ export default function DashboardPage() {
     teamId ? `/v1/apps?team_id=${teamId}` : null
   );
 
-  const { data: issuesData, isLoading: issuesLoading } = useSWR<IssuesResponse>(
-    teamId ? `/v1/issues?team_id=${teamId}&data_mode=${dataMode}&limit=100${projectQs}` : null
-  );
+  const { counts: issueCounts, isLoading: issuesLoading } = useIssueCounts({
+    team_id: teamId,
+    data_mode: dataMode,
+    ...(selectedProjectId ? { project_id: selectedProjectId } : {}),
+  });
 
   const hourBucket = Math.floor(Date.now() / 3_600_000);
   const eventsSince = useMemo(
@@ -200,9 +201,7 @@ export default function DashboardPage() {
     skip: !teamId,
   });
 
-  const openIssueCount = issuesData?.issues.filter((i) =>
-    UNRESOLVED_STATUSES.has(i.status)
-  ).length;
+  const openIssueCount = issueCounts?.open;
   const eventCount = eventsCountData?.count;
   const uniqueUsers = eventsCountData?.unique_users;
   const uniqueSessions = eventsCountData?.unique_sessions;

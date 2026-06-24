@@ -1761,6 +1761,85 @@ describe("Issues API", () => {
       expect(body.occurrences.some((o: any) => o.session_id === "00000000-0000-0000-0000-f00000000001")).toBe(true);
     });
   });
+
+  // ── Count endpoint ───────────────────────────────────────────
+  describe("GET /v1/issues/count", () => {
+    function countUrl(params: Record<string, string> = {}) {
+      const qs = new URLSearchParams({ team_id: teamId, ...params }).toString();
+      return `/v1/issues/count?${qs}`;
+    }
+
+    it("returns an all-zero map with no issues", async () => {
+      const res = await app.inject({ method: "GET", url: countUrl(), headers: { Authorization: `Bearer ${token}` } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        new: 0, in_progress: 0, regressed: 0, resolved: 0, silenced: 0, snoozed: 0, open: 0,
+      });
+    });
+
+    it("tallies per status and derives open = new + in_progress + regressed", async () => {
+      await createTestIssue({ status: "new", title: "n1" });
+      await createTestIssue({ status: "new", title: "n2" });
+      await createTestIssue({ status: "in_progress", title: "ip1" });
+      await createTestIssue({ status: "regressed", title: "rg1" });
+      await createTestIssue({ status: "resolved", title: "rs1" });
+      await createTestIssue({ status: "snoozed", title: "sz1" });
+      await createTestIssue({ status: "silenced", title: "sl1" });
+
+      const res = await app.inject({ method: "GET", url: countUrl(), headers: { Authorization: `Bearer ${token}` } });
+      const body = res.json();
+      expect(body).toEqual({
+        new: 2, in_progress: 1, regressed: 1, resolved: 1, silenced: 1, snoozed: 1, open: 4,
+      });
+    });
+
+    it("data_mode filters dev rows", async () => {
+      await createTestIssue({ status: "new", title: "prod", is_dev: false });
+      await createTestIssue({ status: "new", title: "dev", is_dev: true });
+
+      const prod = await app.inject({ method: "GET", url: countUrl({ data_mode: "production" }), headers: { Authorization: `Bearer ${token}` } });
+      expect(prod.json().new).toBe(1);
+
+      const dev = await app.inject({ method: "GET", url: countUrl({ data_mode: "development" }), headers: { Authorization: `Bearer ${token}` } });
+      expect(dev.json().new).toBe(1);
+
+      const all = await app.inject({ method: "GET", url: countUrl({ data_mode: "all" }), headers: { Authorization: `Bearer ${token}` } });
+      expect(all.json().new).toBe(2);
+    });
+
+    it("narrows by project_id and app_id", async () => {
+      await createTestIssue({ status: "new" });
+
+      const byProject = await app.inject({ method: "GET", url: countUrl({ project_id: projectId }), headers: { Authorization: `Bearer ${token}` } });
+      expect(byProject.json().new).toBe(1);
+
+      const byApp = await app.inject({ method: "GET", url: countUrl({ app_id: appId }), headers: { Authorization: `Bearer ${token}` } });
+      expect(byApp.json().new).toBe(1);
+
+      const otherApp = await app.inject({ method: "GET", url: countUrl({ app_id: "00000000-0000-0000-0000-000000000000" }), headers: { Authorization: `Bearer ${token}` } });
+      expect(otherApp.json().new).toBe(0);
+    });
+
+    it("counts open correctly with >100 mixed-status issues (regression guard)", async () => {
+      // The list endpoint pages at 200; the old home-card approach pulled one
+      // 100-row page and filtered client-side, undercounting once total > page.
+      // 90 resolved (off-ramp, would dominate an updated_at-sorted page) + 15 new.
+      for (let i = 0; i < 90; i++) await createTestIssue({ status: "resolved", title: `resolved-${i}` });
+      for (let i = 0; i < 15; i++) await createTestIssue({ status: "new", title: `new-${i}` });
+
+      const res = await app.inject({ method: "GET", url: countUrl(), headers: { Authorization: `Bearer ${token}` } });
+      const body = res.json();
+      expect(body.new).toBe(15);
+      expect(body.resolved).toBe(90);
+      expect(body.open).toBe(15);
+    });
+
+    it("agent key without issues:read gets 403", async () => {
+      const agentKey = await createAgentKey(app, token, teamId, ["events:read"]);
+      const res = await app.inject({ method: "GET", url: countUrl(), headers: { Authorization: `Bearer ${agentKey}` } });
+      expect(res.statusCode).toBe(403);
+    });
+  });
 });
 
 // Helper to create a minimal JobContext for direct job handler testing

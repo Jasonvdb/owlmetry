@@ -2,6 +2,9 @@ export type IssueStatus = "new" | "in_progress" | "resolved" | "silenced" | "reg
 export type IssueAlertFrequency = "none" | "hourly" | "6_hourly" | "daily" | "weekly";
 
 export const ISSUE_STATUSES = ["new", "in_progress", "resolved", "silenced", "regressed", "snoozed"] as const;
+// The statuses that count as "open" — i.e. needing attention. Single source of
+// truth for the "Open Issues" tile + count endpoint's `open` total.
+export const OPEN_ISSUE_STATUSES = ["new", "in_progress", "regressed"] as const;
 export const ISSUE_ALERT_FREQUENCIES = [
   "none", "hourly", "6_hourly", "daily", "weekly",
 ] as const;
@@ -98,6 +101,17 @@ export interface IssuesResponse {
   issues: IssueResponse[];
   cursor: string | null;
   has_more: boolean;
+}
+
+export interface IssueCountsResponse {
+  new: number;
+  in_progress: number;
+  regressed: number;
+  resolved: number;
+  silenced: number;
+  snoozed: number;
+  /** Sum of OPEN_ISSUE_STATUSES (new + in_progress + regressed). */
+  open: number;
 }
 
 export interface UpdateIssueRequest {
